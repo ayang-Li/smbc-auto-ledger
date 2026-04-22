@@ -1,0 +1,105 @@
+<!--
+  ⚠️ 本文件扩展名为 .html，但内容实为 Markdown 格式。
+  原因：Google Apps Script 项目仅支持 .gs / .html 两种文件后缀，不接受 .md。
+  为了能通过 GAS 编辑器直接 pull 本仓库的文档，这里统一用 .html 承载 Markdown。
+-->
+
+# SMBC 自动记账系统 · CHANGELOG
+
+> 本文档记录本项目的修复历程、排障过程与调试工具。
+> 偏向"工程视角" —— 遇到什么问题，根因是什么，怎么修的。
+
+---
+
+## 目录
+
+- [已知问题与修复记录](#已知问题与修复记录)
+- [⚠️ 巨坑备忘：日次日期公式 vs 取引行插入](#️-巨坑备忘日次日期公式-vs-取引行插入)
+- [调试日志说明](#调试日志说明)
+- [返回项目主页 → README.html](./README.html)
+
+---
+
+## 已知问题与修复记录
+
+| 问题 | 原因 | 修复 |
+|---|---|---|
+| 重复导入 | Date 对象格式化不一致 | `loadExistingIds_` 统一用 `Utilities.formatDate` |
+| 重复导入 | 承認番号前导零丢失 | 两边统一用 `Number()` 处理 |
+| 邮件被截断丢失交易 | Gmail clip | `getFullBody_` fallback 到 HTML |
+| 利用先解析为空 | 全角空格未处理 | 正则加入 `　`（U+3000）|
+| type/time_tag 列为空 | 迁移时列不存在 | 运行 `restructureTransactionSheetPreserveMetadata` |
+| getLastRow() 返回 144 | 数据污染残留 | 手动清理残留行 |
+| SMBC 邮件被其他邮件挤出 50 条 | 搜索未过滤发件人 | 改为按发件人过滤 |
+| time_tag 与 category 语义矛盾 | 时间边界不一致 | fallback 边界统一改为 `>= 22` |
+| 日次 E8「变动+固定总计」重复计算 | importFixedCosts 已把固定支出写入取引，E8 再加 E7 等于双计 | importFixedCosts 彻底删除；日次标签改为「固定估算小计」+「当月取引实际合计」两行独立显示 |
+| 房租硬编码 → 与邮件解析重复记账 | FIXED_COSTS 含租房，事前通知邮件也会写入 | 从 FIXED_COSTS 移除租房两项，改由 predebit_rent 规则自动读取 |
+| 月报旧数据分类名不匹配 | 历史取引行的分类列有「超市买菜 / 晚饭 / supermarket」等旧名称，不在 CATEGORY_GROUPS 中 | CATEGORY_GROUPS 加入别名：晚饭 → 餐饮，超市买菜 / 日常买菜 / supermarket → 便利店/超市 |
+| 月报金额少计约 ¥18,232 | 迁移前老格式行的分类数据在旧「分類」(O 列)，新「分类」(I) / 最终分类 (M) 为空 → `generateSummary_` 跳过这些行 | `generateSummary_` 增加「分類」(O) 列 fallback，兼容迁移前老数据 |
+| importFixedCosts 触发器残留 | 函数已删除但 Apps Script 触发器可能仍在 | 需手动进入 Apps Script → 触发器，删除 importFixedCosts 的定时触发 |
+| 日次「当月取引实际合计」包含未来引落 vs 月报截止今天 | SUMIF 无上界且使用 TEXT 字符串比较日期，行为不稳定；月报 `end=now()` 不含当天之后交易 | SUMIF 改为 SUMIFS + 日期序列比较 + 加月末上界；差值（通常 ¥3,302 水道等）属正常，两者本就统计口径不同 |
+| 邮件 maxLen padding 负数崩溃 | `maxLen` 只取分类标签长度，FIXED_COSTS 标签（AI订阅…）更长导致 `repeat(-n)` | `maxLen` 改为同时覆盖分类标签和 FIXED_COSTS 标签取最大值 |
+| 日次不显示当日最新日期 | 在取引顶部插入新行时，Sheets 自动把日次 A2 的公式引用从 `A2:A` 下移（如变成 `A3:A`），导致顶部新行被 FILTER 跳过；而 SUMIF 用全列 `A:A` 不受影响故旧日期合计仍更新 | 日次 A2 公式改用 INDIRECT 锁死范围：`FILTER(INDIRECT("'取引'!A2:A"), ...)` 插入行不再移位 |
+| 房租分类字符串标注不完整，难以从 Sheet 一眼看出支付方式 | 早期 predebit_rent 的 category 只写 `房租`，中期改为 `房租(浦安)` 仍缺支付方式，和 `房租(エポス代扣・横浜)` 不对称 | 统一改为「地点・支付方式」完整标注：predebit_rent → `房租(浦安・銀行引落)`；predebit_rent_epos 保持 `房租(エポス代扣・横浜)`。CATEGORY_GROUPS 保留 `房租`、`房租(浦安)`、`房租(横浜和田町)` 三个历史别名做兼容 |
+
+---
+
+## ⚠️ 巨坑备忘：日次日期公式 vs 取引行插入
+
+### 现象
+取引里明明有今天的数据，日次的 A 列就是不显示今天 —— 但今天之前的日期合计（B 列）却正常更新了。
+
+### 根本原因
+Google Sheets 有一个「自动修正引用」行为：**当你在某个范围的起始行之前插入新行时，Sheets 会自动把公式里的引用往下顺延。**
+
+例如：
+- 日次 A2 原本写的是 `FILTER('取引'!A2:A, ...)`
+- 你在取引第 2 行插入一行（顶部追加新交易）
+- Sheets 自动把日次 A2 的公式改成 `FILTER('取引'!A3:A, ...)`
+- 从此新插入的顶部行永远在 A3 之前，永远被跳过
+- **这个修改是静默的**，公式栏里看起来「正常」，但范围已经偏了
+
+### 为什么 B 列合计不受影响？
+B2 的 SUMIF 用的是 `取引!A:A`（全列），不存在起始行，所以插入行不会触发引用偏移，金额照常统计。这也是为什么症状很迷惑：旧日期的钱对了，但新日期根本不出现。
+
+### 修复方案
+日次 A2 公式改用 `INDIRECT` 把范围写成字符串，Sheets 就无法自动修改它：
+
+```
+=IFERROR(SORT(UNIQUE(FILTER(INDIRECT("'取引'!A2:A"), INDIRECT("'取引'!A2:A")<>"")), 1, FALSE), "")
+```
+
+`INDIRECT("'取引'!A2:A")` 是一个文本求值，Sheets 的自动引用修正机制对它无效，范围永久锁死在 A2。
+
+### 操作规范
+- 取引的新数据可以**顶部插入**，日次公式不再受影响
+- 每次跑 `setupDailySheet()` 会重置为正确的 INDIRECT 公式
+- **不要手动编辑日次 A2 的公式**，否则可能无意间去掉 INDIRECT 又踩坑
+
+---
+
+## 调试日志说明
+
+运行任意函数后，在 Apps Script → 执行记录 中可看到以下 log：
+
+| 前缀 | 含义 |
+|---|---|
+| `[parser] card_notification` | 解析到刷卡通知邮件，显示商户名 |
+| `[parser] bank_withdrawal` | 解析到银行出金邮件 |
+| `[parser] pre_debit_notice` | 解析到口座引落事前通知，显示件数和商户列表 |
+| `[parser] WARN: 全パーサー不一致` | 邮件格式未匹配任何解析器，需检查新格式 |
+| `[generateSummary_]` | 统计期间、计入金额、各类跳过行数、oldCol_fallback 数 |
+| `[generateSummary_] WARN: 列缺失` | 取引 sheet 列结构异常，dateCol 或 amtCol 找不到 |
+
+### 排查金额不符时的步骤
+
+1. 运行 `sendCurrentMonthExpenseReport()`
+2. 查看执行日志中 `[generateSummary_]` 那行
+3. 若 `skip(no_cat=N)` 较大 → 有 N 行无分类被跳过（通常是旧格式数据）
+4. 若 `oldCol_fallback=N` > 0 → N 行使用了旧「分類」(O) 列，说明迁移数据存在
+
+---
+
+## 相关链接
+
+- [返回项目主页 → README.html](./README.html)

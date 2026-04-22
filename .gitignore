@@ -1,0 +1,34 @@
+# ─── 系统文件 ──────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── 编辑器 / IDE ───────────────
+.vscode/
+.idea/
+*.swp
+*~
+
+# ─── 密钥与环境变量（将来若引入 Node 工具链） ───
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# ─── 日志 ──────────────────────
+*.log
+npm-debug.log*
+
+# ─── Node modules（将来若引入） ──
+node_modules/
+
+# ─── Apps Script CLI（如将来切回 clasp） ──
+.clasp.json
+.clasprc.json
+
+# ─── 开发过程中的 UI 预览文件 ────
+# 这些是 tmp_email_preview_*.html 系列：邮件模板设计阶段的视觉预览
+# 非生产代码。如想把设计历程一并 showcase，删除下一行
+tmp_email_preview_*.html
