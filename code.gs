@@ -1118,6 +1118,23 @@ function setupDailySheet() {
 /* ========= 一次性数据迁移工具 ========= */
 
 /**
+ * 👉 入口 1：先跑 dry-run，只打印会改什么，不真写入 Sheet。
+ *    在 Apps Script 编辑器的函数下拉里选中本函数后点运行。
+ */
+function runRentMigrationDryRun() {
+  migrateRentCategory_(true);
+}
+
+/**
+ * 👉 入口 2：dry-run 确认无误后，选中本函数运行，真写入 Sheet。
+ *    跑完成功后，手动编辑 CATEGORY_GROUPS 里房租那一项，砍掉历史 alias：
+ *      { label: '房租', cats: ['房租(浦安・銀行引落)', '房租(エポス代扣・横浜)'] }
+ */
+function runRentMigrationForReal() {
+  migrateRentCategory_(false);
+}
+
+/**
  * 一次性迁移：把历史房租分类统一成 canonical 值
  *
  * 背景：早期 predebit_rent 的 category 只写 '房租'，中期改为 '房租(浦安)'，
@@ -1126,14 +1143,8 @@ function setupDailySheet() {
  *       CATEGORY_GROUPS 暂时保留历史别名兼容聚合，但 Sheet 里多种字符串共存是技术债。
  *       本函数一次性把所有历史值回填成新 canonical 值，跑完后即可砍掉 alias。
  *
- * 使用方法：
- *   1. 先 dry-run 看会改什么：在编辑器选中 migrateRentCategory_，跑一次（默认 dryRun）
- *   2. 查看执行日志确认无误
- *   3. 临时包一层真跑：function _doMigrateRent() { migrateRentCategory_(false); }
- *      然后选中 _doMigrateRent 运行
- *   4. 跑完后，手动编辑 CATEGORY_GROUPS 中房租那一项：
- *        { label: '房租', cats: ['房租(浦安・銀行引落)', '房租(エポス代扣・横浜)'] }
- *      即可彻底去掉 '房租' / '房租(浦安)' / '房租(横浜和田町)' 三个历史 alias
+ * ※ 函数名带 _ 后缀 = Apps Script 私有函数，不出现在运行下拉。
+ *   入口请用上面两个 wrapper：runRentMigrationDryRun / runRentMigrationForReal
  *
  * 迁移规则（按 规则名 K 列精确匹配，不是字符串模糊匹配，确定性 100%）：
  *   predebit_rent       → '房租(浦安・銀行引落)'

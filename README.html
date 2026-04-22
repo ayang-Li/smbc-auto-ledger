@@ -303,22 +303,16 @@ const FIXED_COSTS = [
 
 ### 迁移步骤
 
-1. 在 Apps Script 编辑器选中函数 `migrateRentCategory_` → 点击运行（**默认 dry-run，不会真改 Sheet**）
+1. 在 Apps Script 编辑器函数下拉选中 **`runRentMigrationDryRun`** → 点击运行（**dry-run，不真改 Sheet**）
 2. 查看执行日志，确认预计改动的行数与内容
-3. 确认无误后，在编辑器里临时新增一个小函数真跑：
-
-```javascript
-function _doMigrateRent() {
-  migrateRentCategory_(false);
-}
-```
-
-4. 选中 `_doMigrateRent` 运行
-5. 跑完后，手动编辑 `code.gs` 顶部 `CATEGORY_GROUPS` 里房租那一项，砍掉历史 alias：
+3. 确认无误后，函数下拉切到 **`runRentMigrationForReal`** → 点击运行（真写入 Sheet）
+4. 跑完后，手动编辑 `code.gs` 顶部 `CATEGORY_GROUPS` 里房租那一项，砍掉历史 alias：
 
 ```javascript
 { label: '房租', cats: ['房租(浦安・銀行引落)', '房租(エポス代扣・横浜)'] }
 ```
+
+> ℹ️ 底层函数 `migrateRentCategory_` 以下划线结尾 = Apps Script 私有函数，不会出现在运行下拉菜单里。所以提供了上面两个公开 wrapper 作为入口。
 
 ### 安全保障
 
