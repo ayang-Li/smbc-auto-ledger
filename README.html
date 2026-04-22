@@ -204,31 +204,47 @@ yyyy-MM-dd_HH:mm:ss_金額_承認番号(or approval string)
 
 ## 报告格式
 
-**周报**（每周一）：变动支出按细分类列出 + 百分比 + 平均每日花销。
+邮件以 HTML 为主 body（iOS Gmail / Apple Mail 直接渲染为美化版），plain text 作 fallback body，同时在 HTML 正文最底部内嵌一个 `<pre>` **纯文本长按复制区**（用户长按任意处 → 全选 → 复制整份月报）。
 
-**月报**（每月 1 号）：
+### 按月自动轮换 6 套主题
 
+同一双月的周报和月报使用同一主题，一年正好完整循环一轮：
+
+| 月份 | 模板 ID | 风格 |
+|---|---|---|
+| 1–2 月   | `c6` | 八十年代账本（红格线 + 仿宋，年关清账感） |
+| 3–4 月   | `c4` | 古诗主题（楷体 + 宣纸，月份对应应景诗句） |
+| 5–6 月   | `c1` | 自然现代宋体（米色新闻纸，明快朴素） |
+| 7–8 月   | `a`  | 纯净英文新闻纸（白底 Georgia，WSJ 风） |
+| 9–10 月  | `c2` | 中文报纸社论（粗宋体 + 红索引条） |
+| 11–12 月 | `e7` | 维多利亚粗 slab（Playfair + 羊皮色） |
+
+调度逻辑（`emailTemplates.gs` 的 `pickTemplateId_`）：
+
+```javascript
+const EMAIL_TEMPLATES = ['c6', 'c4', 'c1', 'a', 'c2', 'e7'];
+// new Date().getMonth() 返回 0–11，除以 2 向下取整 → 0–5
+EMAIL_TEMPLATES[Math.floor(date.getMonth() / 2)];
 ```
-【总计汇总】
- * 统计周期：X月X日 - X月X日
- * 消费总额：XXX,XXX 円
- * 平均每日花销：X,XXX 円
 
- * 主要支出类别：
-   * 房租：XXX,XXX 円
-   * 餐饮(外食/外卖)：XX,XXX 円
-   * 便利店/超市：XX,XXX 円
-   * 交通：X,XXX 円
-   ...
+### 周报 vs 月报
 
-── 固定支出(预估) ──
-光热水煤(推定) : 15,000 円
-通信/iCloud : 3,500 円
-AI订阅 : 6,000 円
-固定预估合计：24,500 円
-```
+共享同一模板，内部通过 `includeFixed` 参数区分：
 
-细分类合并规则（`CATEGORY_GROUPS`）：
+- **月报**（每月 1 号）：渲染全部 6 个区块 — 报头、Lead、TOTAL/DAILY、分类明细、**固定估算**、**Grand Total**、签名、纯文本复制区
+- **周报**（每周一）：裁掉固定估算和 Grand Total 两块（一周无意义叠估算），其它完全一致
+
+### Gmail 兼容约束
+
+- 所有样式 inline 直写元素上，不用 `<style>`（Gmail 移动端会剥离 head 样式）
+- 布局全部用 `<table>`，不用 `display:flex`
+- 只依赖 iOS / macOS / Windows 系统字体栈，不 `@font-face`
+- 无 JS / `<button>` / `onclick`（会被剥离）
+- 深色模式用 `<meta name="color-scheme" content="light">` 锁定浅色
+
+### 分类合并
+
+同一大类可能有多个细分类名（含历史 alias），按 `CATEGORY_GROUPS` 合并显示：
 
 | 大类 | 包含的细分类 |
 |---|---|
@@ -327,9 +343,10 @@ const FIXED_COSTS = [
 
 ```
 smbc-auto-ledger/
-├── code.gs          # 主代码（邮件解析 / 分类 / 写入 / 报告）
-├── README.html      # 本文件 · 项目介绍与使用方法
-├── CHANGELOG.html   # 修复记录 + 踩坑备忘 + 调试说明
+├── code.gs            # 主代码（邮件解析 / 分类 / 去重 / 写入 / 报告调度 / 日次 Sheet 维护）
+├── emailTemplates.gs  # 6 套 HTML 邮件模板 + 按月轮换调度 + 视图模型 + plain text 生成
+├── README.html        # 本文件 · 项目介绍与使用方法
+├── CHANGELOG.html     # 修复记录 + 踩坑备忘 + 调试说明
 └── .gitignore
 ```
 

@@ -632,105 +632,22 @@ function generateSummary_(start, end) {
   return { total, byCat, start, end };
 }
 
-// 邮件发送模板
+// 邮件发送：路由到 emailTemplates.gs 里的 HTML 模板，按月份自动轮换主题。
+// 每封邮件同时带 HTML body（好看）和 plain body（fallback，也嵌入在 HTML 底部作长按复制区）。
 function sendEmailReport_(title, summary, includeFixed = false) {
-  const SEP  = '─────────────────────────\n';
-  const SEP2 = '═════════════════════════\n';
-  const days = Math.round((summary.end - summary.start) / (1000 * 60 * 60 * 24));
-  const avgDaily = days > 0 ? Math.round(summary.total / days) : 0;
+  const vm    = buildViewModel_(summary, includeFixed);
+  const tplId = pickTemplateId_(new Date());
+  const html  = buildEmailHtml_(vm, title, tplId);
+  const plain = buildPlainText_(vm, title);
 
-  let body = '';
+  GmailApp.sendEmail(
+    Session.getActiveUser().getEmail(),
+    title,
+    plain,
+    { htmlBody: html, name: 'SMBC 记账助手' }
+  );
 
-  if (includeFixed) {
-    // ══ 月报格式 ══
-    const startStr = Utilities.formatDate(summary.start, TIME_ZONE, 'M月d日');
-    const endStr   = Utilities.formatDate(new Date(summary.end - 1), TIME_ZONE, 'M月d日');
-
-    // 将 byCat 按 CATEGORY_GROUPS 合并
-    const grouped = {};
-    const used = new Set();
-    CATEGORY_GROUPS.forEach(g => {
-      const amt = g.cats.reduce((s, c) => s + (summary.byCat[c] || 0), 0);
-      if (amt !== 0) { grouped[g.label] = amt; g.cats.forEach(c => used.add(c)); }
-    });
-    Object.entries(summary.byCat).forEach(([c, v]) => {
-      if (!used.has(c) && v !== 0) grouped[c] = v;
-    });
-    const sortedGroups = Object.entries(grouped).sort((a, b) => b[1] - a[1]);
-
-    let fTotal = 0;
-    FIXED_COSTS.forEach(f => { fTotal += f.amount; });
-
-    body += SEP2;
-    body += `  ${title}\n`;
-    body += SEP2;
-    body += `\n`;
-    body += `  统计周期   ${startStr} ～ ${endStr}\n`;
-    body += `  实际消费   ¥${summary.total.toLocaleString()}\n`;
-    body += `  平均每日   ¥${avgDaily.toLocaleString()}\n`;
-    body += `\n`;
-    body += SEP;
-    body += `  支出明细\n`;
-    body += SEP;
-
-    // 最长标签宽度对齐（需同时考虑分类标签和固定支出标签）
-    const allLabels = [
-      ...sortedGroups.map(([l]) => l),
-      ...FIXED_COSTS.map(f => f.label),
-      '固定估算合计'
-    ];
-    const maxLen = allLabels.length > 0 ? Math.max(...allLabels.map(l => l.length)) : 10;
-    sortedGroups.forEach(([label, amt]) => {
-      const pct = summary.total > 0 ? ((amt / summary.total) * 100).toFixed(0) : '0';
-      const pad = ' '.repeat(maxLen - label.length);
-      body += `  ${label}${pad}   ¥${amt.toLocaleString().padStart(10)}   (${pct}%)\n`;
-    });
-
-    body += `\n`;
-    body += SEP;
-    body += `  固定支出（估算，未录入账本）\n`;
-    body += SEP;
-    FIXED_COSTS.forEach(f => {
-      const pad = ' '.repeat(maxLen - f.label.length);
-      body += `  ${f.label}${pad}   ¥${f.amount.toLocaleString().padStart(10)}\n`;
-    });
-    body += `  ${'固定估算合计'.padEnd(maxLen)}   ¥${fTotal.toLocaleString().padStart(10)}\n`;
-
-    body += `\n`;
-    body += SEP2;
-    const grandTotal = summary.total + fTotal;
-    body += `  本月总计（实际 + 估算）   ¥${grandTotal.toLocaleString()}\n`;
-    body += SEP2;
-
-  } else {
-    // ══ 周报格式 ══
-    const startStr = Utilities.formatDate(summary.start, TIME_ZONE, 'M月d日');
-    const endStr   = Utilities.formatDate(new Date(summary.end - 1), TIME_ZONE, 'M月d日');
-    const sorted = Object.entries(summary.byCat).sort((a, b) => b[1] - a[1]);
-    const maxLen = sorted.length > 0 ? Math.max(...sorted.map(([k]) => k.length)) : 0;
-
-    body += SEP2;
-    body += `  ${title}\n`;
-    body += SEP2;
-    body += `\n`;
-    body += `  统计周期   ${startStr} ～ ${endStr}\n`;
-    body += `  变动总额   ¥${summary.total.toLocaleString()}\n`;
-    body += `  平均每日   ¥${avgDaily.toLocaleString()}\n`;
-    body += `\n`;
-    body += SEP;
-    body += `  支出明细\n`;
-    body += SEP;
-
-    sorted.forEach(([k, v]) => {
-      const pct = summary.total > 0 ? ((v / summary.total) * 100).toFixed(0) : '0';
-      const pad = ' '.repeat(maxLen - k.length);
-      body += `  ${k}${pad}   ¥${v.toLocaleString().padStart(10)}   (${pct}%)\n`;
-    });
-
-    body += SEP;
-  }
-
-  GmailApp.sendEmail(Session.getActiveUser().getEmail(), title, body);
+  Logger.log('[sendEmailReport_] 已发送 · template=' + tplId + ' · includeFixed=' + includeFixed);
 }
 
 /* ========= 触发器设置 ========= */
