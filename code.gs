@@ -1029,6 +1029,40 @@ function setupDailySheet() {
 // 不再写入取引，避免污染日次每日合计和当月实际总计。
 
 
+/* ========= 测试工具 ========= */
+
+/**
+ * 一次性发送全部 6 套模板的测试邮件（月报版，含固定估算）。
+ * 用当月真实数据生成 summary，循环每个 tplId 各发一封，subject 里标注模板 id。
+ * 方便在手机端一次对比所有主题的视觉效果。
+ *
+ * 跑法：Apps Script 编辑器函数下拉选中本函数 → 运行。
+ *       ~3 秒后收到 6 封邮件（每封间隔 500ms，防触发 Gmail quota 限流）。
+ */
+function testSendAllTemplates() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const summary = generateSummary_(start, now);
+  const me = Session.getActiveUser().getEmail();
+
+  EMAIL_TEMPLATES.forEach(function (tplId) {
+    const vm = buildViewModel_(summary, true);  // 月报模式，看全量区块（FIXED + GRAND TOTAL）
+    const title = '[TEST ' + tplId + '] 模板预览 · ' + vm.periodStr;
+    const html = buildEmailHtml_(vm, title, tplId);
+    const plain = buildPlainText_(vm, title);
+
+    GmailApp.sendEmail(me, title, plain, {
+      htmlBody: html,
+      name: 'SMBC 模板测试'
+    });
+    Logger.log('[test] sent: ' + tplId);
+    Utilities.sleep(500);
+  });
+
+  Logger.log('[test] 完成：已发送 ' + EMAIL_TEMPLATES.length + ' 封测试邮件');
+}
+
+
 /* ========= 一次性数据迁移工具 ========= */
 
 /**

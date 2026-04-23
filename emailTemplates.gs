@@ -241,7 +241,7 @@ function buildHtml_a_(vm, title) {
   return '<div style="padding:32px 24px; font-family:Georgia,\'Times New Roman\',serif; color:#1a1a1a; background:#ffffff;">' +
          '<div style="text-align:center; border-top:3px solid #1a1a1a; border-bottom:1px solid #1a1a1a; padding:14px 0;">' +
          '<div style="font-size:11px; letter-spacing:0.4em; color:#5a4a30;">VOL. III · NO. ' + _pad2(vm.month) + '</div>' +
-         '<div style="font-size:34px; font-weight:700; margin:6px 0; font-style:italic; letter-spacing:-0.01em; line-height:1;">The Monthly Ledger</div>' +
+         '<img src="' + ASSET_BASE + '/a/header.png" alt="The Monthly Ledger" width="280" style="display:block; margin:6px auto; max-width:100%; height:auto; border:0; outline:none;">' +
          '<div style="font-size:12px; letter-spacing:0.25em; color:#5a4a30;">' + vm.periodStr + '</div>' +
          '</div>' +
 
@@ -314,7 +314,7 @@ function buildHtml_c1_(vm, title) {
   return '<div style="padding:32px 24px; font-family:\'Songti SC\',\'STSong\',\'SimSun\',serif; color:#1a1a1a; background:#f4ede0;">' +
          '<div style="text-align:center; border-top:3px solid #1a1a1a; border-bottom:1px solid #1a1a1a; padding:14px 0;">' +
          '<div style="font-size:12px; letter-spacing:0.3em; color:#5a4a30;">' + vm.year + ' 年 · 第 ' + _monthZh(vm.month) + ' 期</div>' +
-         '<div style="font-size:34px; font-weight:700; margin:6px 0; letter-spacing:0.1em; line-height:1.1;">月度账本</div>' +
+         '<img src="' + ASSET_BASE + '/c1/header.png" alt="月度账本" width="280" style="display:block; margin:6px auto; max-width:100%; height:auto; border:0; outline:none;">' +
          '<div style="font-size:13px; letter-spacing:0.2em; color:#5a4a30;">' + vm.periodStr + '</div>' +
          '</div>' +
 
@@ -387,7 +387,7 @@ function buildHtml_c2_(vm, title) {
          '<div style="font-size:12px; letter-spacing:0.35em; color:#5a4230;">创刊于 二〇二三</div>' +
          '</div>' +
          '<div style="text-align:center; border-bottom:1px solid #1a1410; padding-bottom:12px;">' +
-         '<div style="font-size:42px; font-weight:900; margin:6px 0; letter-spacing:0.15em; line-height:1;">月 计 报</div>' +
+         '<img src="' + ASSET_BASE + '/c2/header.png" alt="月 计 报" width="280" style="display:block; margin:6px auto; max-width:100%; height:auto; border:0; outline:none;">' +
          '<div style="font-size:11px; letter-spacing:0.3em; color:#5a4230; margin-top:12px;">' + vm.year + ' 年 · 第 ' + _monthZh(vm.month) + ' 期 · ' + vm.periodStr + '</div>' +
          '</div>' +
 
@@ -649,7 +649,7 @@ function buildHtml_e7_(vm, title) {
          '<div style="font-size:11px; letter-spacing:0.5em; color:#5a4230;">· ESTABLISHED · MMXXIII ·</div>' +
          '</div>' +
          '<div style="text-align:center; border-bottom:1px solid #1a1410; padding-bottom:12px;">' +
-         '<div style="font-size:40px; font-weight:900; letter-spacing:-0.01em; margin-top:6px; line-height:0.95;">The Monthly<br>Ledger</div>' +
+         '<img src="' + ASSET_BASE + '/e7/header.png" alt="The Monthly Ledger" width="280" style="display:block; margin:6px auto; max-width:100%; height:auto; border:0; outline:none;">' +
          '<div style="font-size:11px; letter-spacing:0.35em; color:#5a4230; margin-top:12px;">VOL. III · ' + _monthEn(vm.month).toUpperCase() + ' · ' + vm.year + '</div>' +
          '</div>' +
 
