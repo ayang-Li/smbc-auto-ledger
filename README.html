@@ -242,6 +242,23 @@ EMAIL_TEMPLATES[Math.floor(date.getMonth() / 2)];
 - 无 JS / `<button>` / `onclick`（会被剥离）
 - 深色模式用 `<meta name="color-scheme" content="light">` 锁定浅色
 
+### C4 / C6 报头用图片保字体
+
+iOS Gmail app 会对非系统默认衬线字体（**楷体 Kaiti**、**仿宋 FangSong**、Playfair Display）做**强制 fallback**，替换为系统 serif（iOS 默认 = 宋体）。后果：C4 报头失去毛笔味，C6 报头失去账本味。
+
+应对方案：把两个模板最醒目的报头文字**预渲染成 PNG**，模板里用 `<img>` 通过 GitHub raw URL 引用，Gmail 无法干预图片内字体。
+
+```
+assets/
+├── c4/month-01.png ~ month-12.png   # 每月 "X 月 記" 楷体
+└── c6/header-monthly.png            # "个人消费月报表" 仿宋
+    header-weekly.png                # "个人消费周报表" 仿宋
+```
+
+生成工具在 `scripts/gen_headers.py`（Python + Pillow + Windows `STKAITI.TTF` / `STFANGSO.TTF`）。字体改版 / 配色调整 → 编辑脚本 → 重跑 → 推送即可。
+
+其他模板（A / C1 / C2 / E7）字体 fallback 后观感可接受（英文 Georgia 保留；宋体 fallback 到系统宋体仍是宋体），不特殊处理。
+
 ### 分类合并
 
 同一大类可能有多个细分类名（含历史 alias），按 `CATEGORY_GROUPS` 合并显示：
@@ -343,10 +360,15 @@ const FIXED_COSTS = [
 
 ```
 smbc-auto-ledger/
-├── code.gs            # 主代码（邮件解析 / 分类 / 去重 / 写入 / 报告调度 / 日次 Sheet 维护）
-├── emailTemplates.gs  # 6 套 HTML 邮件模板 + 按月轮换调度 + 视图模型 + plain text 生成
-├── README.html        # 本文件 · 项目介绍与使用方法
-├── CHANGELOG.html     # 修复记录 + 踩坑备忘 + 调试说明
+├── code.gs                     # 主代码（邮件解析 / 分类 / 去重 / 写入 / 报告调度 / 日次维护）
+├── emailTemplates.gs           # 6 套 HTML 邮件模板 + 按月轮换 + 视图模型 + plain text
+├── assets/
+│   ├── c4/month-NN.png × 12    # C4 楷体报头（避开 iOS Gmail 字体 fallback）
+│   └── c6/header-*.png × 2     # C6 仿宋报头（monthly / weekly）
+├── scripts/
+│   └── gen_headers.py          # 报头 PNG 生成脚本（Pillow）
+├── README.html                 # 本文件
+├── CHANGELOG.html              # 修复记录 + 踩坑备忘 + 调试说明
 └── .gitignore
 ```
 

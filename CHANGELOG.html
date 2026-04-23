@@ -42,6 +42,7 @@
 | 日次不显示当日最新日期 | 在取引顶部插入新行时，Sheets 自动把日次 A2 的公式引用从 `A2:A` 下移（如变成 `A3:A`），导致顶部新行被 FILTER 跳过；而 SUMIF 用全列 `A:A` 不受影响故旧日期合计仍更新 | 日次 A2 公式改用 INDIRECT 锁死范围：`FILTER(INDIRECT("'取引'!A2:A"), ...)` 插入行不再移位 |
 | 房租分类字符串标注不完整，难以从 Sheet 一眼看出支付方式 | 早期 predebit_rent 的 category 只写 `房租`，中期改为 `房租(浦安)` 仍缺支付方式，和 `房租(エポス代扣・横浜)` 不对称 | 统一改为「地点・支付方式」完整标注：predebit_rent → `房租(浦安・銀行引落)`；predebit_rent_epos 保持 `房租(エポス代扣・横浜)`。CATEGORY_GROUPS 保留 `房租`、`房租(浦安)`、`房租(横浜和田町)` 三个历史别名做兼容 |
 | 纯文本邮件在手机端挤成一坨，没有视觉呼吸感，长期阅读疲劳 | `sendEmailReport_` 用 ASCII 字符画表格（`═` / `─` / `padEnd` 对齐），一旦在非等宽环境（手机 Gmail 默认按比例字体渲染）就错位 | 新建 `emailTemplates.gs`，承载 6 套 HTML 邮件模板（c6 / c4 / c1 / a / c2 / e7）+ 按月轮换调度 + 视图模型统一处理 + plain text 生成。`sendEmailReport_` 精简为 13 行调度。约束：inline CSS、`<table>` 布局、系统字体栈、无 JS/`@font-face`。plain body 仍作 fallback，HTML 底部内嵌 `<pre>` 纯文本长按复制区，方便用户一键选中整份月报 |
+| iOS Gmail app 强制 fallback 楷体 / 仿宋 到系统默认宋体，C4 毛笔味和 C6 账本味完全丢失 | Gmail 官方客户端对非 web-safe 字体做暴力归一化，inline `font-family` 中的 `Kaiti SC` / `STFangsong` 会被直接替换。Apple Mail 能保留但 Gmail app 不行 | C4 的 `X 月 記`（楷体）和 C6 的 `个人消费月报表 / 周报表`（仿宋）改为预渲染 PNG，通过 GitHub raw URL 用 `<img>` 嵌入邮件。Gmail 无法干预图片内字体。生成工具：`scripts/gen_headers.py`（Pillow + Windows `STKAITI.TTF` / `STFANGSO.TTF`）。资产：`assets/c4/month-01~12.png` × 12 + `assets/c6/header-{monthly,weekly}.png` × 2。其他模板（A / C1 / C2 / E7）字体 fallback 后观感可接受，不特殊处理 |
 
 ---
 

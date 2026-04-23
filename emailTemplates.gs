@@ -27,6 +27,10 @@
 
 const EMAIL_TEMPLATES = ['c6', 'c4', 'c1', 'a', 'c2', 'e7'];
 
+// 图片资源 base。C4 楷体和 C6 仿宋在 Gmail 手机 app 会被强制 fallback 到系统默认字体，
+// 所以把最醒目的报头预渲染成 PNG（scripts/gen_headers.py 生成）。
+const ASSET_BASE = 'https://raw.githubusercontent.com/ayang-Li/smbc-auto-ledger/main/assets';
+
 function pickTemplateId_(date) {
   return EMAIL_TEMPLATES[Math.floor(date.getMonth() / 2)];
 }
@@ -458,10 +462,14 @@ function buildHtml_c4_(vm, title) {
   const poem = _c4Poem_(vm.month);
   const sumLabel = vm.includeFixed ? '月　計' : '周　計';
 
+  // 楷体报头用预渲染 PNG（Gmail 手机 app 不尊重 Kaiti 字体）
+  const headerImg = ASSET_BASE + '/c4/month-' + _pad2(vm.month) + '.png';
+  const headerAlt = _monthZh(vm.month) + ' 月 記';
+
   return '<div style="padding:34px 26px; font-family:\'Kaiti SC\',\'STKaiti\',\'KaiTi\',\'Songti SC\',serif; color:#2a1810; background:#f1e5cb;">' +
          '<div style="text-align:center; border-top:1px solid #2a1810; border-bottom:1px solid #2a1810; padding:16px 0;">' +
          '<div style="font-size:12px; letter-spacing:0.4em; color:#7a4a28;">' + vm.year + ' 年 · 第 ' + _monthZh(vm.month) + ' 期</div>' +
-         '<div style="font-size:42px; font-weight:700; margin:10px 0; letter-spacing:0.3em; line-height:1;">' + _monthZh(vm.month) + ' 月 記</div>' +
+         '<img src="' + headerImg + '" alt="' + headerAlt + '" width="280" style="display:block; margin:10px auto; max-width:100%; height:auto; border:0; outline:none;">' +
          '<div style="font-size:13px; letter-spacing:0.3em; color:#7a4a28; font-style:italic;">' + vm.periodStr + '</div>' +
          '</div>' +
 
@@ -550,11 +558,13 @@ function buildHtml_c6_(vm, title) {
     '</tr></table></div>' : '';
 
   const reportTitle = vm.includeFixed ? '个人消费月报表' : '个人消费周报表';
+  // 仿宋报头用预渲染 PNG（Gmail 手机 app 不尊重 FangSong 字体）
+  const headerImg = ASSET_BASE + '/c6/header-' + (vm.includeFixed ? 'monthly' : 'weekly') + '.png';
 
   return '<div style="padding:24px 20px; font-family:\'Fangsong SC\',\'STFangsong\',\'FangSong\',\'Songti SC\',serif; color:#1a1410; background:#f3ead0;">' +
          '<div style="text-align:center;">' +
          '<div style="font-size:11px; letter-spacing:0.3em; color:#8b1a1a;">家　庭　财　务</div>' +
-         '<div style="font-size:28px; font-weight:700; margin:6px 0; letter-spacing:0.25em; color:#1a1410;">' + reportTitle + '</div>' +
+         '<img src="' + headerImg + '" alt="' + reportTitle + '" width="280" style="display:block; margin:6px auto; max-width:100%; height:auto; border:0; outline:none;">' +
          '<div style="font-size:11px; letter-spacing:0.2em; color:#5a4230;">编号：SMBC－' + vm.year + '－' + _pad2(vm.month) + '　　表样：甲式</div>' +
          '</div>' +
 
