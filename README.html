@@ -19,7 +19,8 @@
 - [数据流](#数据流)
 - [Sheet 结构](#sheet-结构)
 - [核心功能](#核心功能)
-- [触发器](#触发器)
+- [函数入口速查](#函数入口速查)
+- [配置常量](#配置常量)
 - [报告格式](#报告格式)
 - [使用方法](#使用方法)
 - [修复记录与踩坑备忘](./CHANGELOG.html)
@@ -192,13 +193,66 @@ yyyy-MM-dd_HH:mm:ss_金額_承認番号(or approval string)
 
 ---
 
-## 触发器
+## 函数入口速查
+
+<!-- AUTO-GENERATED FROM code.gs / emailTemplates.gs · 新增公开函数记得同步更新本节 -->
+
+### 定时触发器（自动运行 · 由 `setupTriggers` 注册）
 
 | 函数 | 频率 | 说明 |
 |---|---|---|
-| importSmbcDebitMails | 每小时 | 抓取并解析新邮件（含事前通知）|
-| sendWeeklyExpenseReport | 每周一 9:00 | 发送上周消费周报 |
-| sendLastMonthExpenseReport | 每月 1 号 9:00 | 发送上月消费月报 |
+| `importSmbcDebitMails` | 每小时 | 抓取并解析新 SMBC 邮件（刷卡通知 / 银行出金 / 口座引落事前通知）|
+| `sendWeeklyExpenseReport` | 每周一 9:00 | 发送上周消费周报 |
+| `sendLastMonthExpenseReport` | 每月 1 号 9:00 | 发送上月消费月报 |
+
+### 手动入口（Apps Script 编辑器函数下拉选中运行）
+
+| 函数 | 用途 |
+|---|---|
+| `sendCurrentMonthExpenseReport` | 测试 / 月中预览本月消费（不等到 1 号）|
+| `testSendAllTemplates` | 一次性发送 6 套模板测试邮件，手机端对比所有主题的实际效果 |
+
+### 一次性工具（部署 / 迁移 / 修复场景）
+
+| 函数 | 用途 | 是否可重跑 |
+|---|---|---|
+| `setupTriggers` | 首次部署：创建上方 3 个定时触发器 | 可重跑（会先清除旧触发器再建）|
+| `setupDailySheet` | 重置「日次」Sheet 的 INDIRECT 公式与格式（踩过 Sheets 自动引用偏移的坑需要这个）| ✅ 可随时重跑 |
+| `runRentMigrationDryRun` | 房租分类字段迁移的 dry-run 预演（见 [一次性数据迁移](#一次性数据迁移可选) 节）| 可重跑 |
+| `runRentMigrationForReal` | 房租分类字段真写入（dry-run 确认后再运行）| 理论可重跑（幂等）但已于 2026-04-23 执行完毕 |
+| `restructureTransactionSheetPreserveMetadata` | 历史列结构迁移（为老数据补 `type` / `time_tag` 等缺失列）| 保留作参考，迁移前账本已跑过 |
+
+<!-- END AUTO-GENERATED -->
+
+---
+
+## 配置常量
+
+<!-- AUTO-GENERATED FROM code.gs / emailTemplates.gs -->
+
+核心配置集中在 `code.gs` 和 `emailTemplates.gs` 顶部。
+
+| 常量 | 位置 | 类型 | 说明 |
+|---|---|---|---|
+| `SHEET_NAME` | `code.gs:15` | `string` | 主流水表的工作表名，默认 `'取引'` |
+| `TIME_ZONE` | `code.gs:16` | `string` | 从脚本时区取（`Session.getScriptTimeZone()`），通常为 `Asia/Tokyo` |
+| `FIXED_COSTS` | `code.gs:18` | `Array<{label, amount}>` | **🔧 需个性化**：月度固定估算（光热水煤 / 通信 / AI 订阅）|
+| `CATEGORY_GROUPS` | `code.gs:25` | `Array<{label, cats}>` | 月报分类合并规则（细分类 → 大类显示）|
+| `PLACE_RULES` | `code.gs:180` | `Array<{name, pattern, …}>` | 商户关键词分类规则（驱动刷卡通知的 `autoClassify_`）|
+| `EMAIL_TEMPLATES` | `emailTemplates.gs:28` | `Array<string>` | 6 套模板的轮换顺序，按月份 / 2 索引：`['c6','c4','c1','a','c2','e7']` |
+| `ASSET_BASE` | `emailTemplates.gs:32` | `string` | 图片资源 URL 前缀。**🔧 fork 用户需改为自己仓库的 raw URL**，否则邮件里图片 404 |
+
+### 🔧 个性化定制点
+
+首次 clone 后至少要修改两处：
+
+1. **`FIXED_COSTS`**（`code.gs:18`）：替换为你自己的月度固定估算金额
+2. **`ASSET_BASE`**（`emailTemplates.gs:32`）：改为你 fork 后仓库的 raw URL
+   ```javascript
+   const ASSET_BASE = 'https://raw.githubusercontent.com/你的用户名/smbc-auto-ledger/main/assets';
+   ```
+
+<!-- END AUTO-GENERATED -->
 
 ---
 
