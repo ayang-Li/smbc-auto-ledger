@@ -1045,38 +1045,47 @@ function testSendAllTemplates() {
   const summary = generateSummary_(start, now);
   const me = Session.getActiveUser().getEmail();
 
-  EMAIL_TEMPLATES.forEach(function (tplId) {
-    const vm = buildViewModel_(summary, true);  // 月报模式，看全量区块（FIXED + GRAND TOTAL）
-    const title = '[TEST ' + tplId + '] 模板预览 · ' + vm.periodStr;
-    const html = buildEmailHtml_(vm, title, tplId);
-    const plain = buildPlainText_(vm, title);
+  let sent = 0;
+  let failed = 0;
 
-    GmailApp.sendEmail(me, title, plain, {
-      htmlBody: html,
-      name: 'SMBC 模板测试'
-    });
-    Logger.log('[test] sent: ' + tplId);
-    Utilities.sleep(500);
+  EMAIL_TEMPLATES.forEach(function (tplId) {
+    try {
+      const vm = buildViewModel_(summary, true);  // 月报模式，看全量区块（FIXED + GRAND TOTAL）
+      const title = '[TEST ' + tplId + '] 模板预览 · ' + vm.periodStr;
+      const html = buildEmailHtml_(vm, title, tplId);
+      const plain = buildPlainText_(vm, title);
+
+      GmailApp.sendEmail(me, title, plain, {
+        htmlBody: html,
+        name: 'SMBC 模板测试'
+      });
+      sent++;
+      Logger.log('[test] sent: ' + tplId);
+    } catch (err) {
+      failed++;
+      Logger.log('[test] FAILED for ' + tplId + ': ' + err.message);
+    }
+    Utilities.sleep(500);  // 防 Gmail 短时间密集发送触发 quota 限流
   });
 
-  Logger.log('[test] 完成：已发送 ' + EMAIL_TEMPLATES.length + ' 封测试邮件');
+  Logger.log('[test] 完成：成功 ' + sent + ' / 失败 ' + failed + ' / 共 ' + EMAIL_TEMPLATES.length);
 }
 
 
 /* ========= 一次性数据迁移工具 ========= */
 
 /**
- * 👉 入口 1：先跑 dry-run，只打印会改什么，不真写入 Sheet。
- *    在 Apps Script 编辑器的函数下拉里选中本函数后点运行。
+ * 入口 1：先跑 dry-run，只打印会改什么，不真写入 Sheet。
+ * 在 Apps Script 编辑器的函数下拉里选中本函数后点运行。
  */
 function runRentMigrationDryRun() {
   migrateRentCategory_(true);
 }
 
 /**
- * 👉 入口 2：dry-run 确认无误后，选中本函数运行，真写入 Sheet。
- *    跑完成功后，手动编辑 CATEGORY_GROUPS 里房租那一项，砍掉历史 alias：
- *      { label: '房租', cats: ['房租(浦安・銀行引落)', '房租(エポス代扣・横浜)'] }
+ * 入口 2：dry-run 确认无误后，选中本函数运行，真写入 Sheet。
+ * 跑完成功后，手动编辑 CATEGORY_GROUPS 里房租那一项，砍掉历史 alias：
+ *   { label: '房租', cats: ['房租(浦安・銀行引落)', '房租(エポス代扣・横浜)'] }
  */
 function runRentMigrationForReal() {
   migrateRentCategory_(false);
