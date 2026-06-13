@@ -64,6 +64,12 @@ SMBC 邮件 → Gmail → GAS 解析 → 取引 Sheet → 日次 Sheet（汇总�
 | L | 手动修正 | 人工修正栏 |
 | M | 最终分类 | 手动修正优先，否则用自动分类 |
 | N | 备注 | 补充说明 |
+| O | 修正商家 | 中文商家名（由规则引擎填入）|
+| P | 一级分类 | 餐饮正餐 / 餐饮轻食 / 日常购物 / 交通出行 / 资金调拨 … |
+| Q | 二级分类 | 炸物/日式猪排 / 西式快餐 / 生鲜超市/买菜 … |
+| R | 健康标签 | 🔴不太健康 / 🟡注意放纵 / 🟡普通快餐 / 🟢普通正餐 / 🔄视底层商家 |
+
+> 新列 O–R 由 `importSmbcDebitMails` 自动写入。已有历史数据（A–N列）不受影响；如需为老数据补全新列结构，运行 `restructureTransactionSheetPreserveMetadata` 一次即可。
 
 ### 「日次」— 每日汇总表
 
@@ -122,31 +128,58 @@ Gmail 搜索条件：
 from:(smbc-debit@smbc-card.com OR SMBC_service@dn.smbc.co.jp) newer_than:7d
 ```
 
-### 2. 自动分类规则
+### 2. 自动分类规则（v3）
 
-优先级从高到低：
+优先级从高到低。每条规则输出 `scene / type / timeTag / category / conf / rule / merchant / cat1 / cat2 / health / note` 共 11 个字段。
 
-| 规则 | 条件 | 分类 |
+**刷卡通知规则（PLACE_RULES，`classify_` 入口）**
+
+| 规则 | 触发条件 | category | cat1 / cat2 | 健康标签 |
+|---|---|---|---|---|
+| refund | 金额 < 0 | 退款/返还 | 退款 / — | — |
+| subs_apple | APPLE.COM/BILL | 订阅服务 | 订阅服务 / App/内容订阅 | — |
+| subs_google | GOOGLE / YOUTUBE | 订阅服务 | 订阅服务 / App/内容订阅 | — |
+| subs_direct | NETFLIX/SPOTIFY/CLAUDE.AI/OPENAI | 订阅服务 | 订阅服务 / App/内容订阅 | — |
+| place_wise | TRANSFERWISE，或 WISE + 金额≥5000 | **资金调拨** | 资金调拨 / 国际跨境转账 | — |
+| place_paypaybank_card | PAYPAYBANK / PAYPAY BANK | **资金调拨** | 资金调拨 / 电子钱包充值 | — |
+| place_uber_eats | UBER EATS | 外卖（按时间段） | 餐饮外卖 / 线上外卖平台 | 🔄 视底层商家 |
+| place_uber_pending | UBER PENDING，金额≤200 → 小额，其余 → 外卖 | 便利店/杂项 或 外卖 | 待分类 或 餐饮外卖 | — |
+| place_cvs | FAMILYMART/SEVEN-ELEVEN/LAWSON/MINISTOP | 便利店/杂项 | 便利店 / （随金额）| — |
+| place_supermarket_celsior | CELSIOR | 超市/买菜 | 日常购物 / 生鲜超市/买菜 | — |
+| place_aeon | AEON / MAIBASUKE / MY BASKET | 超市/买菜 | 日常购物 / 生鲜超市/买菜 | — |
+| place_katsuya | KATSUYA | 餐厅（按时间段）| 餐饮正餐 / 炸物/日式猪排 | 🔴 不太健康 |
+| place_mcdonalds | MCDONALD，金额≤500 → 轻食 | 餐厅（按时间段）| 餐饮正餐 或 餐饮轻食 / 西式快餐 | 🔴 不太健康 |
+| place_yakinikukingu | YAKINIKUKINGU | 餐厅（按时间段）| 餐饮正餐 / 日式烧肉放题 | 🟡 注意放纵 |
+| place_sukiya | SUKIYA | 餐厅（按时间段）| 餐饮正餐 / 日式牛丼快餐 | 🟡 普通快餐 |
+| place_nakau | NAKAU | 餐厅（按时间段）| 餐饮正餐 / 日式快餐/乌冬 | 🟡 普通快餐 |
+| place_kitchen_origin | KITCHENORIGIN / KITCHEN ORIGIN | 餐厅（按时间段）| 餐饮轻食 / 便当/外带熟食 | 🟢 普通正餐 |
+| place_syanhaitei | SYANHAITEI / SHANHAI | 餐厅（按时间段）| 餐饮正餐 / 中华料理 | 🟡 普通正餐 |
+| place_dinii_banrao | DINII / BANRAO | 餐厅（按时间段）| 餐饮正餐 / 东南亚料理 | 🟢 普通正餐 |
+| place_katsumata | KATSUMATA | 日常购物 | 日常购物 / 医药/日化药妆 | — |
+| place_bigbox | BIGBOX / BIG BOX | 日常消费 | 综合娱乐 / 商业综合体/零售 | — |
+| place_suica | MOBILE SUICA，¥750 → Green Car | 交通费 | 交通出行 / 普通列车绿色车厢票 或 特急/长途 | — |
+| place_icoca | MOBILE ICOCA | 交通费 | 交通出行 / 通勤交通 | — |
+| place_payment_gateway | IDデビット / SQ* | 日常消费 | 待分类 / 技术网关通道（低置信度，需手动补充）| — |
+| fallback | 按时间段/金额推断 | 午餐/晚餐/夜宵/饮料 等 | — | — |
+
+> ⚠️ **资金调拨**（place_wise / place_paypaybank_card / bank_paypay）：`generateSummary_` 会自动跳过 `category === '资金调拨'` 的行，不计入周报 / 月报消费合计，避免双重记账。
+
+**银行出金邮件规则（`classifyBankWithdrawal_`）**
+
+| 规则 | 条件 | category |
 |---|---|---|
-| refund | 金额 < 0 | 退款/返还 |
-| subs_apple | APPLE.COM/BILL | 订阅服务 |
-| subs_google | GOOGLE/YOUTUBE | 订阅服务 |
-| subs_direct | NETFLIX/SPOTIFY/CLAUDE.AI/OPENAI | 订阅服务 |
-| place_uber_eats | UBER EATS | 外卖 |
-| place_cvs | FAMILYMART/SEVEN-ELEVEN/LAWSON | 便利店/杂项 |
-| place_supermarket | CELSIOR | 超市/买菜 |
-| place_katsuya | KATSUYA | 餐厅 |
-| place_sukiya | SUKIYA | 餐厅 |
-| place_mcdonalds | MCDONALD | 餐厅 |
-| place_suica | MOBILE SUICA | 交通费 |
-| place_icoca | MOBILE ICOCA | 交通费 |
-| bank_paypay | 银行出金 + PAYPAY | 电子钱包充值 |
-| predebit_rent | 事前通知 + ヤチン/家賃 | 房租(浦安・銀行引落) |
-| predebit_rent_epos | 事前通知 + エポス | 房租(エポス代扣・横浜) ※管理公司指定用エポス卡代扣 |
-| predebit_card | 事前通知 + ラクテン/カードサービス | 信用卡还款 |
-| predebit_water | 事前通知 + 水道 | 水道光熱費 |
-| predebit_default | 事前通知（其他） | 银行引落 |
-| fallback | 按时间/金额推断 | 各类 |
+| bank_paypay | place 含 PAYPAY | **资金调拨**（不计入消费）|
+| bank_withdrawal | 其他 | 日常消费 |
+
+**口座引き落とし事前通知规则（`classifyPreDebitNotice_`）**
+
+| 规则 | 条件 | category |
+|---|---|---|
+| predebit_rent | ヤチン / 家賃 | 房租(浦安・銀行引落) |
+| predebit_rent_epos | エポス | 房租(エポス代扣・横浜) |
+| predebit_card | ラクテン / カードサービス | 信用卡还款 |
+| predebit_water | 水道 | 水道光熱費 |
+| predebit_default | 其他 | 银行引落 |
 
 **时间标签（time_tag）：**
 - 05:00–10:00 → 早餐
@@ -238,7 +271,7 @@ yyyy-MM-dd_HH:mm:ss_金額_承認番号(or approval string)
 | `TIME_ZONE` | `code.gs:16` | `string` | 从脚本时区取（`Session.getScriptTimeZone()`），通常为 `Asia/Tokyo` |
 | `FIXED_COSTS` | `code.gs:18` | `Array<{label, amount}>` | **🔧 需个性化**：月度固定估算（光热水煤 / 通信 / AI 订阅）|
 | `CATEGORY_GROUPS` | `code.gs:25` | `Array<{label, cats}>` | 月报分类合并规则（细分类 → 大类显示）|
-| `PLACE_RULES` | `code.gs:180` | `Array<{name, pattern, …}>` | 商户关键词分类规则（驱动刷卡通知的 `autoClassify_`）|
+| `PLACE_RULES` | `code.gs:184` | `Array<{name, pattern, …}>` | 商户关键词分类规则 v3（驱动刷卡通知的 `classify_`），共 20 条，含 merchant/cat1/cat2/health 四个新字段 |
 | `EMAIL_TEMPLATES` | `emailTemplates.gs:28` | `Array<string>` | 6 套模板的轮换顺序，按月份 / 2 索引：`['c6','c4','c1','a','c2','e7']` |
 | `ASSET_BASE` | `emailTemplates.gs:32` | `string` | 图片资源 URL 前缀。**🔧 fork 用户需改为自己仓库的 raw URL**，否则邮件里图片 404 |
 
@@ -334,7 +367,10 @@ Apps Script 编辑器函数下拉选中 **`testSendAllTemplates`** 运行，会�
 | 订阅服务 | 订阅服务 |
 | 信用卡还款 | 信用卡还款 |
 | 日常消费/杂项 | 日常消费、大额支出 |
+| 日常购物 | 日常购物（药妆店、超市等）|
 | 退款 | 退款/返还 |
+
+> **资金调拨**（Wise 转账 / PayPay 充值）不进 `CATEGORY_GROUPS`，在 `generateSummary_` 里直接跳过，月报不显示、不计入合计，避免双重记账。
 
 ---
 

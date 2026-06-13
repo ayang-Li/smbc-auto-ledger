@@ -36,7 +36,9 @@ const CATEGORY_GROUPS = [
   { label: '信用卡还款',      cats: ['信用卡还款'] },
   { label: '银行引落',        cats: ['银行引落'] },
   { label: '日常消费/杂项',   cats: ['日常消费', '大额支出'] },
+  { label: '日常购物',        cats: ['日常购物'] },
   { label: '退款',           cats: ['退款/返还'] },
+  // 资金调拨不计入消费统计（generateSummary_ 中直接跳过）
 ];
 
 
@@ -109,7 +111,11 @@ function importSmbcDebitMails() {
           classified.rule,
           '',
           classified.category,
-          classified.note || ''
+          classified.note || '',
+          classified.merchant || '',
+          classified.cat1 || '',
+          classified.cat2 || '',
+          classified.health || ''
         ]);
 
         existingIds.add(dedupeKey);
@@ -143,7 +149,7 @@ function importSmbcDebitMails() {
     const rule = SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied('=AND($A2<>"", TEXT($A2,"yyyy-mm")<>TEXT(TODAY(),"yyyy-mm"))')
       .setFontColor('#999999')
-      .setRanges([sheet.getRange("A2:N5000")])
+      .setRanges([sheet.getRange("A2:R5000")])
       .build();
     sheet.setConditionalFormatRules([rule]);
     // -----------------------
@@ -175,7 +181,7 @@ function parseMail_(body) {
   };
 }
 
-/* ========= 分类规则 v2 ========= */
+/* ========= 分类规则 v3 ========= */
 
 const PLACE_RULES = [
   // 1. 退款
@@ -183,13 +189,9 @@ const PLACE_RULES = [
     name: 'refund',
     match: tx => tx.amount < 0,
     out: tx => ({
-      scene: '退款',
-      type: '退款',
-      timeTag: classifyTimeTag_(tx.date),
-      category: '退款/返还',
-      conf: 'high',
-      rule: 'refund',
-      note: ''
+      scene: '退款', type: '退款', timeTag: classifyTimeTag_(tx.date),
+      category: '退款/返还', conf: 'high', rule: 'refund',
+      merchant: '', cat1: '退款', cat2: '', health: '', note: ''
     })
   },
 
@@ -198,12 +200,9 @@ const PLACE_RULES = [
     name: 'subs_apple',
     match: tx => includesAny_(tx.placeNorm, ['APPLE.COM/BILL']),
     out: tx => ({
-      scene: '订阅',
-      type: '订阅',
-      timeTag: classifyTimeTag_(tx.date),
-      category: '订阅服务',
-      conf: 'high',
-      rule: 'subs_apple',
+      scene: '订阅', type: '订阅', timeTag: classifyTimeTag_(tx.date),
+      category: '订阅服务', conf: 'high', rule: 'subs_apple',
+      merchant: 'Apple', cat1: '订阅服务', cat2: 'App/内容订阅', health: '',
       note: tx.amount === 3400 ? 'Claude会员' : 'Apple订阅'
     })
   },
@@ -211,43 +210,57 @@ const PLACE_RULES = [
     name: 'subs_google',
     match: tx => includesAny_(tx.placeNorm, ['GOOGLE', 'YOUTUBE']),
     out: tx => ({
-      scene: '订阅',
-      type: '订阅',
-      timeTag: classifyTimeTag_(tx.date),
-      category: '订阅服务',
-      conf: 'high',
-      rule: 'subs_google',
-      note: ''
+      scene: '订阅', type: '订阅', timeTag: classifyTimeTag_(tx.date),
+      category: '订阅服务', conf: 'high', rule: 'subs_google',
+      merchant: 'Google/YouTube', cat1: '订阅服务', cat2: 'App/内容订阅', health: '', note: ''
     })
   },
   {
     name: 'subs_direct',
     match: tx => includesAny_(tx.placeNorm, ['NETFLIX', 'SPOTIFY', 'CLAUDE.AI', 'OPENAI']),
     out: tx => ({
-      scene: '订阅',
-      type: '订阅',
-      timeTag: classifyTimeTag_(tx.date),
-      category: '订阅服务',
-      conf: 'high',
-      rule: 'subs_direct',
-      note: ''
+      scene: '订阅', type: '订阅', timeTag: classifyTimeTag_(tx.date),
+      category: '订阅服务', conf: 'high', rule: 'subs_direct',
+      merchant: tx.placeNorm, cat1: '订阅服务', cat2: 'App/内容订阅', health: '', note: ''
     })
   },
 
-  // 3. 外卖
+  // 3. 资金调拨（不计入日常消费统计）
+  {
+    name: 'place_wise',
+    // 'WISE' 是 4 字符，防止 OTHERWISE/LIKEWISE 等单词误判：要求金额 >= 5000 或 TRANSFERWISE 精确词
+    match: tx => includesAny_(tx.placeNorm, ['TRANSFERWISE']) ||
+                 (tx.amount >= 5000 && includesAny_(tx.placeNorm, ['WISE'])),
+    out: tx => ({
+      scene: '资金调拨', type: '国际转账', timeTag: classifyTimeTag_(tx.date),
+      category: '资金调拨', conf: 'high', rule: 'place_wise',
+      merchant: 'Wise', cat1: '资金调拨', cat2: '国际跨境转账', health: '',
+      note: '不计入日常消费（仅手续费单独计入金融服务）'
+    })
+  },
+  {
+    name: 'place_paypaybank_card',
+    match: tx => includesAny_(tx.placeNorm, ['PAYPAYBANK', 'PAYPAY BANK']),
+    out: tx => ({
+      scene: '资金调拨', type: '电子钱包充值', timeTag: classifyTimeTag_(tx.date),
+      category: '资金调拨', conf: 'high', rule: 'place_paypaybank_card',
+      merchant: 'PayPay银行', cat1: '资金调拨', cat2: '电子钱包充值', health: '',
+      note: '账户内互转，不计入消费，避免双重记账'
+    })
+  },
+
+  // 4. 外卖
   {
     name: 'place_uber_eats',
     match: tx => includesAny_(tx.placeNorm, ['UBER * EATS', 'UBER EATS']),
     out: tx => {
       const timeTag = classifyTimeTag_(tx.date);
       return {
-        scene: '外卖',
-        type: '正餐',
-        timeTag,
+        scene: '外卖', type: '正餐', timeTag,
         category: timeTagToMealCategory_(timeTag, '外卖'),
-        conf: 'high',
-        rule: 'place_uber_eats',
-        note: ''
+        conf: 'high', rule: 'place_uber_eats',
+        merchant: 'Uber Eats', cat1: '餐饮外卖', cat2: '线上外卖平台',
+        health: '🔄 视底层商家而定', note: ''
       };
     }
   },
@@ -256,75 +269,76 @@ const PLACE_RULES = [
     match: tx => includesAny_(tx.placeNorm, ['UBER * PENDING', 'UBER PENDING']),
     out: tx => {
       const timeTag = classifyTimeTag_(tx.date);
-
       if (tx.amount <= 200) {
         return {
-          scene: '未知',
-          type: '小额消费',
-          timeTag,
-          category: '便利店/杂项',
-          conf: 'low',
-          rule: 'uber_pending_small',
-          note: ''
+          scene: '未知', type: '小额消费', timeTag,
+          category: '便利店/杂项', conf: 'low', rule: 'uber_pending_small',
+          merchant: 'Uber', cat1: '待分类', cat2: '小额/未知', health: '', note: ''
         };
       }
-
       return {
-        scene: '外卖',
-        type: '正餐',
-        timeTag,
+        scene: '外卖', type: '正餐', timeTag,
         category: timeTagToMealCategory_(timeTag, '外卖'),
-        conf: 'mid',
-        rule: 'uber_pending_meal',
-        note: ''
+        conf: 'mid', rule: 'uber_pending_meal',
+        merchant: 'Uber Eats', cat1: '餐饮外卖', cat2: '线上外卖平台',
+        health: '🔄 视底层商家而定', note: ''
       };
     }
   },
 
-  // 4. 便利店
+  // 5. 便利店
   {
     name: 'place_cvs',
     match: tx => includesAny_(tx.placeNorm, ['FAMILYMART', 'SEVEN-ELEVEN', 'LAWSON', 'MINISTOP']),
-    out: tx => ({
-      scene: '便利店',
-      type: classifyConvenienceType_(tx.amount),
-      timeTag: classifyTimeTag_(tx.date),
-      category: '便利店/杂项',
-      conf: 'high',
-      rule: 'place_cvs',
-      note: ''
-    })
+    out: tx => {
+      const convType = classifyConvenienceType_(tx.amount);
+      return {
+        scene: '便利店', type: convType,
+        timeTag: classifyTimeTag_(tx.date),
+        category: '便利店/杂项', conf: 'high', rule: 'place_cvs',
+        merchant: cvsMerchantName_(tx.placeNorm),
+        cat1: '便利店', cat2: convType, health: '', note: ''
+      };
+    }
   },
 
-  // 5. 超市
+  // 6. 超市
   {
     name: 'place_supermarket_celsior',
     match: tx => includesAny_(tx.placeNorm, ['CELSIOR']),
     out: tx => ({
-      scene: '超市',
-      type: classifySupermarketType_(tx.amount),
+      scene: '超市', type: classifySupermarketType_(tx.amount),
       timeTag: classifyTimeTag_(tx.date),
-      category: '超市/买菜',
-      conf: 'high',
-      rule: 'place_supermarket_celsior',
+      category: '超市/买菜', conf: 'high', rule: 'place_supermarket_celsior',
+      merchant: 'CELSIOR', cat1: '日常购物', cat2: '生鲜超市/买菜', health: '',
       note: 'CELSIOR=超市'
     })
   },
+  {
+    name: 'place_aeon',
+    match: tx => includesAny_(tx.placeNorm, ['AEON', 'MAIBASUKE', 'MY BASKET', 'MYBASKET']),
+    out: tx => ({
+      scene: '超市', type: classifySupermarketType_(tx.amount),
+      timeTag: classifyTimeTag_(tx.date),
+      category: '超市/买菜', conf: 'high', rule: 'place_aeon',
+      merchant: '永旺/My Basket (まいばすけっと)',
+      cat1: '日常购物', cat2: '生鲜超市/买菜', health: '',
+      note: '自炊食材/日常补给'
+    })
+  },
 
-  // 6. 餐厅
+  // 7. 餐厅
   {
     name: 'place_katsuya',
     match: tx => includesAny_(tx.placeNorm, ['KATSUYA']),
     out: tx => {
       const timeTag = classifyTimeTag_(tx.date);
       return {
-        scene: '餐厅',
-        type: '正餐',
-        timeTag,
+        scene: '餐厅', type: '正餐', timeTag,
         category: timeTagToMealCategory_(timeTag, '餐厅'),
-        conf: 'high',
-        rule: 'place_katsuya',
-        note: ''
+        conf: 'high', rule: 'place_katsuya',
+        merchant: '吉豚屋 (かつや)', cat1: '餐饮正餐', cat2: '炸物/日式猪排',
+        health: '🔴 不太健康', note: '高油炸高卡'
       };
     }
   },
@@ -333,14 +347,28 @@ const PLACE_RULES = [
     match: tx => includesAny_(tx.placeNorm, ['MCDONALD']),
     out: tx => {
       const timeTag = classifyTimeTag_(tx.date);
+      const isLight = tx.amount <= 500;
       return {
-        scene: '餐厅',
-        type: tx.amount <= 500 ? '轻食' : '正餐',
-        timeTag,
+        scene: '餐厅', type: isLight ? '轻食' : '正餐', timeTag,
         category: timeTagToMealCategory_(timeTag, '餐厅'),
-        conf: 'high',
-        rule: 'place_mcdonalds',
-        note: ''
+        conf: 'high', rule: 'place_mcdonalds',
+        merchant: "麦当劳 (McDonald's)",
+        cat1: isLight ? '餐饮轻食' : '餐饮正餐', cat2: '西式快餐',
+        health: '🔴 不太健康', note: '油炸/精制碳水'
+      };
+    }
+  },
+  {
+    name: 'place_yakinikukingu',
+    match: tx => includesAny_(tx.placeNorm, ['YAKINIKUKINGU', 'YAKINIKU KINGU', 'YAKINIKUKING']),
+    out: tx => {
+      const timeTag = classifyTimeTag_(tx.date);
+      return {
+        scene: '餐厅', type: '正餐', timeTag,
+        category: timeTagToMealCategory_(timeTag, '餐厅'),
+        conf: 'high', rule: 'place_yakinikukingu',
+        merchant: '烧肉王 (焼肉きんぐ)', cat1: '餐饮正餐', cat2: '日式烧肉放题',
+        health: '🟡 注意放纵', note: '高蛋白/高热量'
       };
     }
   },
@@ -350,42 +378,132 @@ const PLACE_RULES = [
     out: tx => {
       const timeTag = classifyTimeTag_(tx.date);
       return {
-        scene: '餐厅',
-        type: '正餐',
-        timeTag,
+        scene: '餐厅', type: '正餐', timeTag,
         category: timeTagToMealCategory_(timeTag, '餐厅'),
-        conf: 'high',
-        rule: 'place_sukiya',
-        note: ''
+        conf: 'high', rule: 'place_sukiya',
+        merchant: '食其家 (すき家)', cat1: '餐饮正餐', cat2: '日式牛丼快餐',
+        health: '🟡 普通快餐', note: '碳水偏高'
+      };
+    }
+  },
+  {
+    name: 'place_nakau',
+    match: tx => includesAny_(tx.placeNorm, ['NAKAU']),
+    out: tx => {
+      const timeTag = classifyTimeTag_(tx.date);
+      return {
+        scene: '餐厅', type: '正餐', timeTag,
+        category: timeTagToMealCategory_(timeTag, '餐厅'),
+        conf: 'high', rule: 'place_nakau',
+        merchant: '奈卡乌 (なか卯)', cat1: '餐饮正餐', cat2: '日式快餐/乌冬',
+        health: '🟡 普通快餐', note: '碳水偏高'
+      };
+    }
+  },
+  {
+    name: 'place_kitchen_origin',
+    match: tx => includesAny_(tx.placeNorm, ['KITCHENORIGIN', 'KITCHEN ORIGIN', 'KITCHEN-ORIGIN']),
+    out: tx => {
+      const timeTag = classifyTimeTag_(tx.date);
+      return {
+        scene: '餐厅', type: '轻食', timeTag,
+        category: timeTagToMealCategory_(timeTag, '餐厅'),
+        conf: 'high', rule: 'place_kitchen_origin',
+        merchant: 'Kitchen Origin (和田町店)', cat1: '餐饮轻食', cat2: '便当/外带熟食',
+        health: '🟢 普通正餐', note: '低客单价，多为单点小菜/饭团'
+      };
+    }
+  },
+  {
+    name: 'place_syanhaitei',
+    match: tx => includesAny_(tx.placeNorm, ['SYANHAITEI', 'SHANHAI', 'SHANGHAITEI']),
+    out: tx => {
+      const timeTag = classifyTimeTag_(tx.date);
+      return {
+        scene: '餐厅', type: '正餐', timeTag,
+        category: timeTagToMealCategory_(timeTag, '餐厅'),
+        conf: 'high', rule: 'place_syanhaitei',
+        merchant: '上海亭 (木场店)', cat1: '餐饮正餐', cat2: '中华料理',
+        health: '🟡 普通正餐', note: '油脂可能偏高'
+      };
+    }
+  },
+  {
+    name: 'place_dinii_banrao',
+    match: tx => includesAny_(tx.placeNorm, ['DINII', 'BANRAO']),
+    out: tx => {
+      const timeTag = classifyTimeTag_(tx.date);
+      return {
+        scene: '餐厅', type: '正餐', timeTag,
+        category: timeTagToMealCategory_(timeTag, '餐厅'),
+        conf: 'high', rule: 'place_dinii_banrao',
+        merchant: '泰料店 (Banrao)', cat1: '餐饮正餐', cat2: '东南亚料理',
+        health: '🟢 普通正餐', note: 'Dinii为点餐系统，banrao为实际商家'
       };
     }
   },
 
-  // 7. 交通
+  // 8. 零售 / 药妆 / 综合
+  {
+    name: 'place_katsumata',
+    match: tx => includesAny_(tx.placeNorm, ['KATSUMATA']),
+    out: tx => ({
+      scene: '购物', type: '日化/药妆', timeTag: classifyTimeTag_(tx.date),
+      category: '日常购物', conf: 'high', rule: 'place_katsumata',
+      merchant: 'Katsumata 药妆店 (和田町店)',
+      cat1: '日常购物', cat2: '医药/日化药妆', health: '',
+      note: '个人护理/生活用品'
+    })
+  },
+  {
+    name: 'place_bigbox',
+    match: tx => includesAny_(tx.placeNorm, ['BIGBOX', 'BIG BOX']),
+    out: tx => ({
+      scene: '购物', type: '综合零售', timeTag: classifyTimeTag_(tx.date),
+      category: '日常消费', conf: 'mid', rule: 'place_bigbox',
+      merchant: '高田马场 BIGBOX',
+      cat1: '综合娱乐', cat2: '商业综合体/零售', health: '',
+      note: '复合型消费'
+    })
+  },
+
+  // 9. 交通
   {
     name: 'place_suica',
     match: tx => includesAny_(tx.placeNorm, ['MOBILE SUICA']),
-    out: tx => ({
-      scene: '交通',
-      type: tx.amount >= 500 ? '车费/特急' : '通勤',
-      timeTag: classifyTimeTag_(tx.date),
-      category: '交通费',
-      conf: 'high',
-      rule: 'place_suica',
-      note: tx.amount >= 500 ? '可能是グリーン車/特急' : ''
-    })
+    out: tx => {
+      const isGreenCar = tx.amount === 750;
+      const isLarge = tx.amount >= 500;
+      return {
+        scene: '交通', type: isLarge ? '车费/特急' : '通勤',
+        timeTag: classifyTimeTag_(tx.date),
+        category: '交通费', conf: 'high', rule: 'place_suica',
+        merchant: 'Mobile Suica', cat1: '交通出行',
+        cat2: isGreenCar ? '普通列车绿色车厢票' : (isLarge ? '特急/长途' : '通勤交通'),
+        health: '',
+        note: isGreenCar ? '¥750 Green Car グリーン車' : (isLarge ? '可能是グリーン車/特急' : '')
+      };
+    }
   },
   {
     name: 'place_icoca',
     match: tx => includesAny_(tx.placeNorm, ['MOBILE ICOCA']),
     out: tx => ({
-      scene: '交通',
-      type: '通勤',
-      timeTag: classifyTimeTag_(tx.date),
-      category: '交通费',
-      conf: 'high',
-      rule: 'place_icoca',
-      note: ''
+      scene: '交通', type: '通勤', timeTag: classifyTimeTag_(tx.date),
+      category: '交通费', conf: 'high', rule: 'place_icoca',
+      merchant: 'Mobile ICOCA', cat1: '交通出行', cat2: '通勤交通', health: '', note: ''
+    })
+  },
+
+  // 10. 支付通道（系统无法穿透底层商家，需手动补充「手动修正」列）
+  {
+    name: 'place_payment_gateway',
+    match: tx => includesAny_(tx.placeNorm, ['IDデビット', 'SQ*SQUARE', 'SQ*']),
+    out: tx => ({
+      scene: '未知', type: '支付通道', timeTag: classifyTimeTag_(tx.date),
+      category: '日常消费', conf: 'low', rule: 'place_payment_gateway',
+      merchant: '', cat1: '待分类', cat2: '技术网关通道', health: '',
+      note: '⚠️ 请手动补充底层商家到「手动修正」列'
     })
   }
 ];
@@ -410,72 +528,49 @@ function classifyFallback_(tx) {
 
   if (amount >= 8000) {
     return {
-      scene: '未知',
-      type: '大额消费',
-      timeTag,
-      category: '大额支出',
-      conf: 'low',
-      rule: 'big_amount',
-      note: ''
+      scene: '未知', type: '大额消费', timeTag,
+      category: '大额支出', conf: 'low', rule: 'big_amount',
+      merchant: '', cat1: '大额支出', cat2: '', health: '', note: ''
     };
   }
 
   if (tx.hour >= 11 && tx.hour < 14 && amount >= 600 && amount <= 3000) {
     return {
-      scene: '未知',
-      type: '正餐',
-      timeTag,
-      category: '午餐',
-      conf: 'mid',
-      rule: 'time_lunch',
-      note: ''
+      scene: '未知', type: '正餐', timeTag,
+      category: '午餐', conf: 'mid', rule: 'time_lunch',
+      merchant: '', cat1: '餐饮正餐', cat2: '未知', health: '', note: ''
     };
   }
 
   if (tx.hour >= 17 && tx.hour < 21 && amount >= 800) {
     return {
-      scene: '未知',
-      type: '正餐',
-      timeTag,
-      category: '晚餐',
-      conf: 'mid',
-      rule: 'time_dinner',
-      note: ''
+      scene: '未知', type: '正餐', timeTag,
+      category: '晚餐', conf: 'mid', rule: 'time_dinner',
+      merchant: '', cat1: '餐饮正餐', cat2: '未知', health: '', note: ''
     };
   }
 
   if (tx.hour >= 22 || tx.hour < 4) {
     return {
-      scene: '未知',
-      type: amount <= 300 ? '饮料/小额' : '正餐',
-      timeTag,
+      scene: '未知', type: amount <= 300 ? '饮料/小额' : '正餐', timeTag,
       category: amount <= 300 ? '便利店/杂项' : '夜宵/外卖',
-      conf: 'mid',
-      rule: 'time_late',
-      note: ''
+      conf: 'mid', rule: 'time_late',
+      merchant: '', cat1: amount <= 300 ? '便利店' : '餐饮外卖', cat2: '未知', health: '', note: ''
     };
   }
 
   if (amount > 100 && amount <= 250) {
     return {
-      scene: '未知',
-      type: '饮料/小额',
-      timeTag,
-      category: '饮料',
-      conf: 'mid',
-      rule: 'price_drink',
-      note: ''
+      scene: '未知', type: '饮料/小额', timeTag,
+      category: '饮料', conf: 'mid', rule: 'price_drink',
+      merchant: '', cat1: '饮料', cat2: '', health: '', note: ''
     };
   }
 
   return {
-    scene: '未知',
-    type: amount <= 300 ? '小额消费' : '日常消费',
-    timeTag,
-    category: '日常消费',
-    conf: 'low',
-    rule: 'default',
-    note: ''
+    scene: '未知', type: amount <= 300 ? '小额消费' : '日常消费', timeTag,
+    category: '日常消费', conf: 'low', rule: 'default',
+    merchant: '', cat1: '日常消费', cat2: '', health: '', note: ''
   };
 }
 
@@ -498,6 +593,14 @@ function normalizePlace_(place) {
 
 function includesAny_(text, keywords) {
   return keywords.some(k => text.includes(k));
+}
+
+function cvsMerchantName_(placeNorm) {
+  if (placeNorm.includes('FAMILYMART')) return 'FamilyMart';
+  if (placeNorm.includes('SEVEN-ELEVEN')) return 'Seven-Eleven';
+  if (placeNorm.includes('LAWSON')) return 'Lawson';
+  if (placeNorm.includes('MINISTOP')) return 'Ministop';
+  return '便利店';
 }
 
 /* ========= 标签工具 ========= */
@@ -616,6 +719,9 @@ function generateSummary_(start, end) {
     const dObj = (d instanceof Date) ? d : new Date(String(d) + 'T00:00:00');
     if (isNaN(dObj.getTime())) { skipBadDate++; continue; }
     if (dObj < start || dObj >= end) { skipOutOfRange++; continue; }
+
+    // 资金调拨（Wise/PayPay充值等）不计入消费统计，避免双重记账
+    if (cat === '资金调拨') continue;
 
     total += amt;
     byCat[cat] = (byCat[cat] || 0) + amt;
@@ -737,7 +843,8 @@ function restructureTransactionSheetPreserveMetadata() {
   const desiredHeaders = [
     '日付', '時刻', '金額', '利用先', '承認番号',
     'scene', 'type', 'time_tag',
-    '分类', '信任度', '规则名', '手动修正', '最终分类', '备注'
+    '分类', '信任度', '规则名', '手动修正', '最终分类', '备注',
+    '修正商家', '一级分类', '二级分类', '健康标签'
   ];
 
   // 不想要但先保留元数据的列：移到右边并隐藏，不直接删除
@@ -906,20 +1013,20 @@ function classifyPreDebitNotice_(tx) {
 
   // 浦安住宅，银行引落直接扣（SMBC(ヤチン(セーフテイ…）
   if (norm.includes('ヤチン') || norm.includes('家賃')) {
-    return { scene: '固定支出', type: '房租', timeTag: '月次', category: '房租(浦安・銀行引落)', conf: 'high', rule: 'predebit_rent', note: tx.place };
+    return { scene: '固定支出', type: '房租', timeTag: '月次', category: '房租(浦安・銀行引落)', conf: 'high', rule: 'predebit_rent', merchant: '浦安住宅', cat1: '固定支出', cat2: '房租/银行引落', health: '', note: tx.place };
   }
   // 横浜住宅，管理公司指定用エポス卡代扣房租（非普通信用卡消费）
   if (norm.includes('エポス')) {
-    return { scene: '固定支出', type: '房租', timeTag: '月次', category: '房租(エポス代扣・横浜)', conf: 'high', rule: 'predebit_rent_epos', note: tx.place };
+    return { scene: '固定支出', type: '房租', timeTag: '月次', category: '房租(エポス代扣・横浜)', conf: 'high', rule: 'predebit_rent_epos', merchant: 'エポス卡代扣', cat1: '固定支出', cat2: '房租/信用卡代扣', health: '', note: tx.place };
   }
   if (norm.includes('ラクテン') || norm.includes('RAKUTEN') ||
       (norm.includes('カード') && norm.includes('サービス'))) {
-    return { scene: '固定支出', type: '信用卡还款', timeTag: '月次', category: '信用卡还款', conf: 'high', rule: 'predebit_card', note: tx.place };
+    return { scene: '固定支出', type: '信用卡还款', timeTag: '月次', category: '信用卡还款', conf: 'high', rule: 'predebit_card', merchant: '楽天カード', cat1: '固定支出', cat2: '信用卡还款', health: '', note: tx.place };
   }
   if (norm.includes('水道')) {
-    return { scene: '固定支出', type: '水道費', timeTag: '月次', category: '水道光熱費', conf: 'high', rule: 'predebit_water', note: tx.place };
+    return { scene: '固定支出', type: '水道費', timeTag: '月次', category: '水道光熱費', conf: 'high', rule: 'predebit_water', merchant: '水道局', cat1: '固定支出', cat2: '水道光热', health: '', note: tx.place };
   }
-  return { scene: '固定支出', type: '银行引落', timeTag: '月次', category: '银行引落', conf: 'mid', rule: 'predebit_default', note: tx.place };
+  return { scene: '固定支出', type: '银行引落', timeTag: '月次', category: '银行引落', conf: 'mid', rule: 'predebit_default', merchant: '', cat1: '固定支出', cat2: '银行引落/其他', health: '', note: tx.place };
 }
 
 function classifyBankWithdrawal_(tx) {
@@ -927,23 +1034,17 @@ function classifyBankWithdrawal_(tx) {
 
   if (placeNorm.includes('PAYPAY')) {
     return {
-      scene: '资金出金',
-      type: '电子钱包充值',
-      timeTag: classifyTimeTag_(tx.date),
-      category: '日常消费',
-      conf: 'high',
-      rule: 'bank_paypay',
-      note: '银行账户出金到PAYPAY'
+      scene: '资金调拨', type: '电子钱包充值', timeTag: classifyTimeTag_(tx.date),
+      category: '资金调拨', conf: 'high', rule: 'bank_paypay',
+      merchant: 'PayPay', cat1: '资金调拨', cat2: '电子钱包充值', health: '',
+      note: '银行账户出金到PAYPAY，不计入消费，避免双重记账'
     };
   }
 
   return {
-    scene: '资金出金',
-    type: '账户出金',
-    timeTag: classifyTimeTag_(tx.date),
-    category: '日常消费',
-    conf: 'mid',
-    rule: 'bank_withdrawal',
+    scene: '资金出金', type: '账户出金', timeTag: classifyTimeTag_(tx.date),
+    category: '日常消费', conf: 'mid', rule: 'bank_withdrawal',
+    merchant: '', cat1: '日常消费', cat2: '银行出金/其他', health: '',
     note: '银行账户出金'
   };
 }
