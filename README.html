@@ -69,7 +69,7 @@ SMBC 邮件 → Gmail → GAS 解析 → 取引 Sheet → 日次 Sheet（汇总�
 | Q | 二级分类 | 炸物/日式猪排 / 西式快餐 / 生鲜超市/买菜 … |
 | R | 健康标签 | 🔴不太健康 / 🟡注意放纵 / 🟡普通快餐 / 🟢普通正餐 / 🔄视底层商家 |
 
-> 新列 O–R 由 `importSmbcDebitMails` 自动写入。已有历史数据（A–N列）不受影响；如需为老数据补全新列结构，运行 `restructureTransactionSheetPreserveMetadata` 一次即可。
+> 新列 O–R 由 `importSmbcDebitMails` 自动写入。表头由 `ensureSheetHeaders_` 在每次导入开头自愈：与共享常量 `SHEET_HEADERS` 严格比对校正（兼容残留旧列名），并从既有表头列复制样式让新格继承灰底白字，无需手动维护。已有历史数据（A–N列）不受影响；如需为老数据补全新列结构，运行 `restructureTransactionSheetPreserveMetadata` 一次即可。
 
 ### 「日次」— 每日汇总表
 
