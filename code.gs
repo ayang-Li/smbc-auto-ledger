@@ -922,18 +922,29 @@ function ensureSheetHeaders_(sheet) {
   if (!sheet) return;
   const lastCol = Math.max(sheet.getLastColumn(), SHEET_HEADERS.length);
   const current = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-  let changed = false;
+  const changedCols = [];  // 被校正的列号（1-based）
   for (let i = 0; i < SHEET_HEADERS.length; i++) {
     if (String(current[i]).trim() !== SHEET_HEADERS[i]) {
       Logger.log(`表头校正 第${i + 1}列: "${current[i]}" → "${SHEET_HEADERS[i]}"`);
       current[i] = SHEET_HEADERS[i];
-      changed = true;
+      changedCols.push(i + 1);
     }
   }
-  if (changed) {
-    sheet.getRange(1, 1, 1, current.length).setValues([current]);
-    Logger.log('表头自愈：已校正为标准列名');
+  if (changedCols.length === 0) return;
+
+  sheet.getRange(1, 1, 1, current.length).setValues([current]);
+
+  // 让新校正的表头格继承既有表头样式（灰底白字加粗）：
+  // 取一个“未被改动”的表头列当模板；整行都是新建时无模板可继承，跳过。
+  let templateCol = 0;
+  for (let i = 0; i < SHEET_HEADERS.length; i++) {
+    if (changedCols.indexOf(i + 1) === -1) { templateCol = i + 1; break; }
   }
+  if (templateCol > 0) {
+    const template = sheet.getRange(1, templateCol);
+    changedCols.forEach(col => template.copyTo(sheet.getRange(1, col), { formatOnly: true }));
+  }
+  Logger.log('表头自愈：已校正列名' + (templateCol > 0 ? '并继承表头样式' : ''));
 }
 
 /**
