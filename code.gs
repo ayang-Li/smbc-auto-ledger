@@ -913,8 +913,10 @@ function moveHeaderColumnToIndex_(sheet, headerRow, headerName, targetCol) {
 }
 
 /**
- * 确保表头行（第1行）含有全部标准列名。
- * 只填补“空白”的表头格，不覆盖用户已有的列名，避免误改自定义表头。
+ * 确保表头行（第1行）与标准列名 SHEET_HEADERS 完全一致。
+ * 数据写入按固定列序占满 A–R 全 18 列，所以这 18 个表头必须严格对应；
+ * 任何不一致都是残留旧列名（如 分類/信頼度）或漏填，统一校正。
+ * 仅校正前 18 列，第 19 列及之后（隐藏的存档列）保持不动。
  */
 function ensureSheetHeaders_(sheet) {
   if (!sheet) return;
@@ -922,14 +924,15 @@ function ensureSheetHeaders_(sheet) {
   const current = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
   let changed = false;
   for (let i = 0; i < SHEET_HEADERS.length; i++) {
-    if (current[i] === '' || current[i] === null || String(current[i]).trim() === '') {
+    if (String(current[i]).trim() !== SHEET_HEADERS[i]) {
+      Logger.log(`表头校正 第${i + 1}列: "${current[i]}" → "${SHEET_HEADERS[i]}"`);
       current[i] = SHEET_HEADERS[i];
       changed = true;
     }
   }
   if (changed) {
     sheet.getRange(1, 1, 1, current.length).setValues([current]);
-    Logger.log('表头自愈：已补齐缺失列名');
+    Logger.log('表头自愈：已校正为标准列名');
   }
 }
 
