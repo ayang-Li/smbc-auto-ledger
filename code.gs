@@ -15,6 +15,15 @@
 const SHEET_NAME = '取引';
 const TIME_ZONE = Session.getScriptTimeZone();
 
+// 取引表的标准列顺序（数据写入与表头必须严格一致）
+// O–R 四列为 2026-06 新增：修正商家 / 一级分类 / 二级分类 / 健康标签
+const SHEET_HEADERS = [
+  '日付', '時刻', '金額', '利用先', '承認番号',
+  'scene', 'type', 'time_tag',
+  '分类', '信任度', '规则名', '手动修正', '最终分类', '备注',
+  '修正商家', '一级分类', '二级分类', '健康标签'
+];
+
 const FIXED_COSTS = [
   // 房租已改由「口座引き落とし事前お知らせ」邮件自动读取，不再手动写入
   { label: '光热水煤(推定)', amount: 15000 },
@@ -47,6 +56,9 @@ const CATEGORY_GROUPS = [
 function importSmbcDebitMails() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEET_NAME);
+
+  // 自愈：确保表头行含全部标准列名（补齐之前漏写的 O–R 列头）
+  ensureSheetHeaders_(sheet);
 
   const threads = GmailApp.search('from:(smbc-debit@smbc-card.com OR SMBC_service@dn.smbc.co.jp) newer_than:7d', 0, 50);
   Logger.log('找到邮件线程数: ' + threads.length);
@@ -839,13 +851,8 @@ function restructureTransactionSheetPreserveMetadata() {
 
   const HEADER_ROW = 1;
 
-  // 目标列顺序（你真正要用的）
-  const desiredHeaders = [
-    '日付', '時刻', '金額', '利用先', '承認番号',
-    'scene', 'type', 'time_tag',
-    '分类', '信任度', '规则名', '手动修正', '最终分类', '备注',
-    '修正商家', '一级分类', '二级分类', '健康标签'
-  ];
+  // 目标列顺序（你真正要用的）—— 与数据写入共用同一份定义
+  const desiredHeaders = SHEET_HEADERS;
 
   // 不想要但先保留元数据的列：移到右边并隐藏，不直接删除
   const archiveHeaders = ['id', '利用日', '分類', '信頼度', 'ルール名'];
@@ -903,6 +910,27 @@ function moveHeaderColumnToIndex_(sheet, headerRow, headerName, targetCol) {
   const destination = currentCol < targetCol ? targetCol + 1 : targetCol;
 
   sheet.moveColumns(colRange, destination);
+}
+
+/**
+ * 确保表头行（第1行）含有全部标准列名。
+ * 只填补“空白”的表头格，不覆盖用户已有的列名，避免误改自定义表头。
+ */
+function ensureSheetHeaders_(sheet) {
+  if (!sheet) return;
+  const lastCol = Math.max(sheet.getLastColumn(), SHEET_HEADERS.length);
+  const current = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  let changed = false;
+  for (let i = 0; i < SHEET_HEADERS.length; i++) {
+    if (current[i] === '' || current[i] === null || String(current[i]).trim() === '') {
+      current[i] = SHEET_HEADERS[i];
+      changed = true;
+    }
+  }
+  if (changed) {
+    sheet.getRange(1, 1, 1, current.length).setValues([current]);
+    Logger.log('表头自愈：已补齐缺失列名');
+  }
 }
 
 /**
